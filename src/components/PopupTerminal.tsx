@@ -37,6 +37,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
   const [history, setHistory] = useState<string[]>([]);
   const [hIdx, setHIdx] = useState(-1);
   const [config, setConfig] = useState<ConfigState | null>(null);
+  const [showDownloadPopup, setShowDownloadPopup] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const cwd = "/root";

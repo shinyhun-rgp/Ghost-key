@@ -83,6 +83,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Secure remote server administration client" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Remote Administration Client" },
+      { name: "twitter:description", content: "Secure remote server administration client" },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/71a075d5-8a2e-4cdc-97fd-00d89d81fee8/id-preview-467cedf4--019b1394-835e-4f4b-9f2a-2617a52c5bef.lovable.app-1784345681809.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/71a075d5-8a2e-4cdc-97fd-00d89d81fee8/id-preview-467cedf4--019b1394-835e-4f4b-9f2a-2617a52c5bef.lovable.app-1784345681809.png" },
     ],
     links: [
       {

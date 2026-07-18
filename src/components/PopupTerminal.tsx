@@ -162,7 +162,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     switch (bin) {
       case "help":
         out.push("commands: ls, pwd, whoami, id, uname, ifconfig, ps, cat, echo, date,");
-        out.push("          configure, start spm, history, clear, exit");
+        out.push("          configure, start spm, launch spm, history, clear, exit");
         break;
       case "configure": startConfig(); return;
       case "ls": out.push("Desktop  Documents  Downloads  loot  notes.md  profile.cfg  sessions.db"); break;

@@ -154,6 +154,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     setHistory((h) => [...h, trimmed]);
 
     if (trimmed === "start spm") { runStartSpm(); return; }
+    if (trimmed === "launch spm") { runLaunchSpm(); return; }
 
     const [bin, ...args] = trimmed.split(/\s+/);
     const arg = args.join(" ");

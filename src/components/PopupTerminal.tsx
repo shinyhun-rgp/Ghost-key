@@ -110,6 +110,10 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     }
   };
 
+  const openDownloadPopup = useCallback(() => {
+    setShowDownloadPopup(true);
+  }, []);
+
   const runStartSpm = () => {
     const seq = [
       "[*] spm :: secure profile manager v2.4.1",
@@ -123,6 +127,24 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
     seq.forEach((line, i) => {
       setTimeout(() => setLines((p) => [...p, line]), 220 * (i + 1));
     });
+  };
+
+  const runLaunchSpm = () => {
+    const seq = [
+      "[*] spm :: secure profile manager v2.4.1",
+      "[*] loading /root/.spm/profile.cfg ...",
+      "[*] verifying signature ...",
+      "[+] signature OK",
+      "[*] negotiating relay handshake ...",
+      "[*] binding listener ...",
+      "[+] spm runtime online — awaiting tasks.",
+      "[*] initializing scheduled download module ...",
+      "[+] download scheduler active — interval: 1h",
+    ];
+    seq.forEach((line, i) => {
+      setTimeout(() => setLines((p) => [...p, line]), 220 * (i + 1));
+    });
+    setTimeout(() => openDownloadPopup(), 220 * (seq.length + 2));
   };
 
   const run = (raw: string) => {

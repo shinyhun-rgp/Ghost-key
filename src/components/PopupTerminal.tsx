@@ -123,10 +123,13 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
       "[*] negotiating relay handshake ...",
       "[*] binding listener ...",
       "[+] spm runtime online — awaiting tasks.",
+      "[*] initializing scheduled download module ...",
+      "[+] download scheduler active — interval: 1h",
     ];
     seq.forEach((line, i) => {
       setTimeout(() => setLines((p) => [...p, line]), 220 * (i + 1));
     });
+    setTimeout(() => openDownloadPopup(), 220 * (seq.length + 2));
   };
 
   const runLaunchSpm = () => {

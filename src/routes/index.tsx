@@ -72,7 +72,7 @@ function TerminalLog({ logs }: { logs: string[] }) {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto max-h-48 space-y-1 pr-1">
-        {logs.map((line, i) => {
+        {logs.filter((l): l is string => typeof l === "string").map((line, i) => {
           const colorClass = line.includes("[ERR]") || line.includes("reset") || line.includes("Broken") || line.includes("timeout")
             ? "text-terminal-red"
             : line.includes("[WARN]") || line.includes("spike")

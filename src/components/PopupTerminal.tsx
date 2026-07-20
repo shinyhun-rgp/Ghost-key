@@ -298,7 +298,6 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
       {showDownloadPopup && (
         <DownloadScheduler
           rhost={rhost}
-          onClose={() => setShowDownloadPopup(false)}
         />
       )}
     </div>

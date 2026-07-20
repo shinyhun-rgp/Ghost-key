@@ -229,7 +229,7 @@ export default function PopupTerminal({ onClose, rhost = "target", lhost = "oper
         >
           <div className="text-terminal-cyan">░ R E M O T E   S E S S I O N   1 ░</div>
           <div className="mb-2 text-muted-foreground">Connected to {rhost} via meterpreter — type 'help', 'configure', or 'exit'.</div>
-          {lines.map((l, i) => {
+          {lines.filter((l): l is string => typeof l === "string").map((l, i) => {
             const color = l.startsWith("root@") ? "text-foreground/90"
               : l.startsWith("[+]") ? "text-terminal-green"
               : l.startsWith("[*]") ? "text-terminal-yellow"
@@ -409,7 +409,7 @@ function DownloadScheduler({ rhost, onClose }: { rhost: string; onClose: () => v
         <div className="h-[320px] overflow-y-auto px-3 py-2 text-[11px] leading-relaxed">
           <div className="text-terminal-green">░ D O W N L O A D   S C H E D U L E R ░</div>
           <div className="mb-2 text-muted-foreground">Automated fetch cycle — interval 1h · close to dismiss</div>
-          {dlLines.map((l, i) => {
+          {dlLines.filter((l): l is string => typeof l === "string").map((l, i) => {
             const color = l.startsWith("──") ? "text-terminal-cyan"
               : l.startsWith("[+]") ? "text-terminal-green"
               : l.startsWith("[*]") ? "text-terminal-yellow"
